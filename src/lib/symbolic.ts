@@ -27,7 +27,6 @@ export function computeDerivative(expression: string, variable: string): Derivat
     const simplifiedDerivative = math.simplify(derivative);
     
     // 计算对数偏导数 ∂(ln f)/∂x
-    // 方法：对 log(expression) 求导
     const logExpr = `log(${expression})`;
     const logNode = math.parse(logExpr);
     const logDerivative = math.derivative(logNode, variable);
@@ -63,32 +62,14 @@ export function computeAllDerivatives(expression: string, variables: string[]): 
 }
 
 /**
- * 生成对数形式的公式（用于显示）
+ * 生成对数形式的公式
  */
 export function generateLogFormula(resultVar: string, expressionLatex: string): string {
   return `\\ln ${resultVar} = \\ln\\left(${expressionLatex}\\right)`;
 }
 
 /**
- * 生成相对不确定度传递公式的LaTeX
- */
-export function generateRelativeUncertaintyFormula(
-  resultVar: string,
-  derivatives: DerivativeResult[]
-): string {
-  if (derivatives.length === 0) {
-    return `\\frac{u_c(${resultVar})}{|${resultVar}|} = 0`;
-  }
-  
-  const terms = derivatives.map(d => {
-    return `\\left(\\frac{\\partial \\ln f}{\\partial ${d.variable}}\\right)^2 u_c^2(${d.variable})`;
-  });
-  
-  return `\\frac{u_c(${resultVar})}{|${resultVar}|} = \\sqrt{${terms.join(' + ')}}`;
-}
-
-/**
- * 生成展开形式的相对不确定度公式（代入偏导数表达式）
+ * 生成展开形式的相对不确定度公式
  */
 export function generateExpandedFormula(
   resultVar: string,
@@ -99,33 +80,6 @@ export function generateExpandedFormula(
   }
   
   const terms = derivatives.map(d => {
-    return `\\left(${d.logDerivativeLatex}\\right)^2 u_c^2(${d.variable})`;
-  });
-  
-  return `\\frac{u_c(${resultVar})}{|${resultVar}|} = \\sqrt{${terms.join(' + ')}}`;
-}
-
-/**
- * 生成简化形式的相对不确定度公式（使用相对不确定度）
- */
-export function generateSimplifiedFormula(
-  resultVar: string,
-  derivatives: DerivativeResult[]
-): string {
-  if (derivatives.length === 0) {
-    return `\\frac{u_c(${resultVar})}{|${resultVar}|} = 0`;
-  }
-  
-  // 尝试生成更简洁的形式
-  const terms = derivatives.map(d => {
-    // 检查对数偏导数是否是 n/x 的形式（幂次/变量）
-    const simplified = d.simplified;
-    const match = simplified.match(/^(-?\d*\.?\d*)\s*[*/]\s*(\w+)$|^(-?\d*\.?\d*)\s*\/\s*(\w+)$/);
-    
-    if (match) {
-      // 如果是简单的 n/x 形式
-      return `\\left(${d.logDerivativeLatex} \\cdot u_c(${d.variable})\\right)^2`;
-    }
     return `\\left(${d.logDerivativeLatex}\\right)^2 u_c^2(${d.variable})`;
   });
   

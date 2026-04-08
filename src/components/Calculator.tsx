@@ -1,37 +1,30 @@
 import { useState, useEffect, useCallback, useMemo } from 'preact/hooks';
-import { type MathNode } from 'mathjs';
 import { ExpressionInput } from './ExpressionInput';
 import { FormulaPreview } from './FormulaPreview';
 import { VariableCard } from './VariableCard';
 import { ResultsPanel } from './ResultsPanel';
 import { ProcessDocument } from './ProcessDocument';
 import { ExportButtons } from './ExportButtons';
-import { parseExpression, nodeToLatex, evaluateExpression } from '../lib/parser';
-import type { ParsedExpression } from '../lib/parser';
-import { computeAllDerivatives, generateExpandedFormula } from '../lib/symbolic';
-import type { DerivativeResult } from '../lib/symbolic';
-import type {
-  MeasurementData,
-  VariableResult,
-} from '../lib/uncertainty';
+import { parseExpression, type ParsedExpression, nodeToLatex, evaluateExpression } from '../lib/parser';
+import { computeAllDerivatives, type DerivativeResult } from '../lib/symbolic';
 import {
+  type MeasurementData,
+  type VariableResult,
+  type CombinedUncertaintyResult,
   calculateVariableStats,
   calculateCombinedUncertainty,
   getDefaultMeasurementData,
 } from '../lib/uncertainty';
 import { getTValue, type ConfidenceLevel } from '../lib/tTable';
 import { formatResult } from '../lib/rounding';
-import { generateLatex, generateMarkdown } from '../lib/latex';
-import type { ExportData } from '../lib/latex';
+import { generateLatex, generateMarkdown, type ExportData } from '../lib/latex';
 
-// 示例公式
 const EXAMPLE_EXPRESSIONS = [
   { label: '密度测量', expr: 'rho = 4 * m / (pi * d^2 * L)' },
   { label: '单摆周期', expr: 'g = 4 * pi^2 * L / T^2' },
   { label: '欧姆定律', expr: 'R = U / I' },
 ];
 
-// localStorage key
 const STORAGE_KEY = 'physics-uncertainty-calculator';
 
 interface StoredData {
@@ -41,40 +34,38 @@ interface StoredData {
 }
 
 export function Calculator() {
-  // 状态
   const [expression, setExpression] = useState('');
   const [parsedExpr, setParsedExpr] = useState<ParsedExpression | null>(null);
   const [derivatives, setDerivatives] = useState<DerivativeResult[]>([]);
   const [variableData, setVariableData] = useState<{ [key: string]: MeasurementData }>({});
   const [confidence, setConfidence] = useState<ConfidenceLevel>(0.95);
 
-  // 从 localStorage 加载数据
+  // 从 localStorage 加载
   useEffect(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
         const data: StoredData = JSON.parse(stored);
-        setExpression(data.expression || '');
-        setVariableData(data.variableData || {});
-        setConfidence(data.confidence || 0.95);
+        if (data.expression) setExpression(data.expression);
+        if (data.variableData) setVariableData(data.variableData);
+        if (data.confidence) setConfidence(data.confidence);
       }
     } catch (e) {
       console.error('Failed to load from localStorage:', e);
     }
   }, []);
 
-  // 保存到 localStorage
+  // 保存到 localStorage（防抖）
   useEffect(() => {
-    try {
-      const data: StoredData = {
-        expression,
-        variableData,
-        confidence,
-      };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    } catch (e) {
-      console.error('Failed to save to localStorage:', e);
-    }
+    const timer = setTimeout(() => {
+      try {
+        const data: StoredData = { expression, variableData, confidence };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      } catch (e) {
+        console.error('Failed to save to localStorage:', e);
+      }
+    }, 500);
+    return () => clearTimeout(timer);
   }, [expression, variableData, confidence]);
 
   // 解析表达式
@@ -93,45 +84,47 @@ export function Calculator() {
       return;
     }
 
-    // 计算偏导数
     const derivs = computeAllDerivatives(parsed.expression, parsed.variables);
     setDerivatives(derivs);
 
-    // 初始化新变量的数据
-    const newVarData = { ...variableData };
-    let hasNewVar = false;
-
-    parsed.variables.forEach(v => {
-      if (!newVarData[v]) {
-        newVarData[v] = getDefaultMeasurementData(3, confidence);
-        hasNewVar = true;
-      }
+    // 初始化新变量
+    setVariableData(prev => {
+      const newData = { ...prev };
+      let changed = false;
+      parsed.variables.forEach(v => {
+        if (!newData[v]) {
+          newData[v] = getDefaultMeasurementData(3, confidence);
+          changed = true;
+        }
+      });
+      return changed ? newData : prev;
     });
-
-    if (hasNewVar) {
-      setVariableData(newVarData);
-    }
-  }, [expression]);
+  }, [expression, confidence]);
 
   // 更新变量数据
   const updateVariableData = useCallback((varName: string, data: MeasurementData) => {
-    setVariableData(prev => ({
-      ...prev,
-      [varName]: data,
-    }));
+    setVariableData(prev => {
+      // 避免不必要的更新
+      if (JSON.stringify(prev[varName]) === JSON.stringify(data)) {
+        return prev;
+      }
+      return { ...prev, [varName]: data };
+    });
   }, []);
 
-  // 更新置信概率时同步更新所有变量的 t 因子
+  // 更新置信概率
   const handleConfidenceChange = useCallback((newConfidence: ConfidenceLevel) => {
     setConfidence(newConfidence);
     setVariableData(prev => {
       const updated = { ...prev };
       Object.keys(updated).forEach(varName => {
-        const n = updated[varName].values.filter(v => !isNaN(v)).length || 3;
-        updated[varName] = {
-          ...updated[varName],
-          tFactor: getTValue(n, newConfidence),
-        };
+        const n = updated[varName].values.filter(v => !isNaN(v)).length;
+        if (n > 0) {
+          updated[varName] = {
+            ...updated[varName],
+            tFactor: getTValue(n, newConfidence),
+          };
+        }
       });
       return updated;
     });
@@ -143,36 +136,17 @@ export function Calculator() {
 
     return parsedExpr.variables.map(varName => {
       const data = variableData[varName] || getDefaultMeasurementData(3, confidence);
-      const stats = calculateVariableStats(data);
+      const stats = calculateVariableStats(data, confidence);
       return { name: varName, data, stats };
     });
   }, [parsedExpr, variableData, confidence]);
 
-  // 计算总不确定度
-  const combinedResult = useMemo(() => {
-    if (!parsedExpr || parsedExpr.error || derivatives.length === 0 || variableResults.length === 0) {
-      return null;
-    }
-
-    // 检查是否所有变量都有有效数据
-    const allValid = variableResults.every(vr => !isNaN(vr.stats.mean) && !isNaN(vr.stats.uc));
-    if (!allValid) return null;
-
-    // 先计算 finalValue
-    const meanValues: { [key: string]: number } = {};
-    variableResults.forEach(vr => {
-      meanValues[vr.name] = vr.stats.mean;
-    });
-    const fv = evaluateExpression(parsedExpr.expression, meanValues);
-    
-    if (isNaN(fv)) return null;
-
-    return calculateCombinedUncertainty(derivatives, variableResults, fv);
-  }, [derivatives, variableResults, parsedExpr]);
-
   // 计算最终值
   const finalValue = useMemo(() => {
     if (!parsedExpr || parsedExpr.error || variableResults.length === 0) return NaN;
+
+    const allHaveMean = variableResults.every(vr => !isNaN(vr.stats.mean));
+    if (!allHaveMean) return NaN;
 
     const meanValues: { [key: string]: number } = {};
     variableResults.forEach(vr => {
@@ -182,17 +156,35 @@ export function Calculator() {
     return evaluateExpression(parsedExpr.expression, meanValues);
   }, [parsedExpr, variableResults]);
 
+  // 计算总不确定度
+  const combinedResult: CombinedUncertaintyResult | null = useMemo(() => {
+    if (!parsedExpr || parsedExpr.error) return null;
+    if (derivatives.length === 0 || variableResults.length === 0) return null;
+    if (isNaN(finalValue) || finalValue === 0) return null;
+
+    // 检查所有变量是否有有效的不确定度
+    const allValid = variableResults.every(vr => 
+      !isNaN(vr.stats.mean) && isFinite(vr.stats.uc)
+    );
+    if (!allValid) return null;
+
+    try {
+      return calculateCombinedUncertainty(derivatives, variableResults, finalValue);
+    } catch (e) {
+      console.error('计算合成不确定度出错:', e);
+      return null;
+    }
+  }, [derivatives, variableResults, finalValue, parsedExpr]);
+
   // 格式化最终结果
   const formattedResult = useMemo(() => {
-    if (!combinedResult || isNaN(finalValue)) return null;
+    if (!combinedResult || isNaN(finalValue) || !isFinite(combinedResult.totalUc)) return null;
     return formatResult(finalValue, combinedResult.totalUc);
   }, [finalValue, combinedResult]);
 
   // 生成导出数据
   const exportData: ExportData | null = useMemo(() => {
-    if (!parsedExpr || !parsedExpr.mathNode || !combinedResult || !formattedResult) {
-      return null;
-    }
+    if (!parsedExpr?.mathNode || !combinedResult || !formattedResult) return null;
 
     return {
       expression: parsedExpr.expression,
@@ -202,13 +194,14 @@ export function Calculator() {
       variableResults,
       finalValue,
       finalUncertainty: combinedResult.totalUc,
+      relativeUncertainty: combinedResult.relativeUc,
       formattedValue: formattedResult.value,
       formattedUncertainty: formattedResult.uncertainty,
       confidence,
     };
   }, [parsedExpr, derivatives, variableResults, finalValue, combinedResult, formattedResult, confidence]);
 
-  // 清空所有数据
+  // 清空
   const handleReset = useCallback(() => {
     setExpression('');
     setParsedExpr(null);
@@ -226,13 +219,11 @@ export function Calculator() {
 
   return (
     <div class="calculator">
-      {/* 标题区 */}
       <header class="header">
         <h1>物理实验不确定度计算器</h1>
-        <p class="subtitle">大学物理实验误差分析辅助工具</p>
+        <p class="subtitle">大学物理实验误差分析辅助工具（对数微分法）</p>
       </header>
 
-      {/* 置信概率选择 */}
       <div class="confidence-selector">
         <label>置信概率 P：</label>
         <select
@@ -244,32 +235,23 @@ export function Calculator() {
         </select>
       </div>
 
-      {/* 示例表达式 */}
       <div class="examples">
         <span>示例：</span>
         {EXAMPLE_EXPRESSIONS.map(ex => (
-          <button
-            key={ex.label}
-            class="example-btn"
-            onClick={() => loadExample(ex.expr)}
-          >
+          <button key={ex.label} class="example-btn" onClick={() => loadExample(ex.expr)}>
             {ex.label}
           </button>
         ))}
-        <button class="reset-btn" onClick={handleReset}>
-          🗑️ 清空
-        </button>
+        <button class="reset-btn" onClick={handleReset}>🗑️ 清空</button>
       </div>
 
-      {/* 表达式输入 */}
       <ExpressionInput
         value={expression}
         onChange={setExpression}
         error={parsedExpr?.error || null}
       />
 
-      {/* 公式预览 */}
-      {parsedExpr && parsedExpr.mathNode && (
+      {parsedExpr?.mathNode && (
         <FormulaPreview
           resultVariable={parsedExpr.resultVariable}
           expressionNode={parsedExpr.mathNode}
@@ -277,26 +259,28 @@ export function Calculator() {
         />
       )}
 
-      {/* 变量输入卡片 */}
       {parsedExpr && parsedExpr.variables.length > 0 && (
         <div class="variables-section">
           <h2>变量数据输入</h2>
           <div class="variable-cards">
-            {parsedExpr.variables.map(varName => (
-              <VariableCard
-                key={varName}
-                name={varName}
-                data={variableData[varName] || getDefaultMeasurementData(3, confidence)}
-                stats={variableResults.find(vr => vr.name === varName)?.stats || null}
-                confidence={confidence}
-                onDataChange={(data) => updateVariableData(varName, data)}
-              />
-            ))}
+            {parsedExpr.variables.map(varName => {
+              const data = variableData[varName] || getDefaultMeasurementData(3, confidence);
+              const result = variableResults.find(vr => vr.name === varName);
+              return (
+                <VariableCard
+                  key={varName}
+                  name={varName}
+                  data={data}
+                  stats={result?.stats || null}
+                  confidence={confidence}
+                  onDataChange={(newData) => updateVariableData(varName, newData)}
+                />
+              );
+            })}
           </div>
         </div>
       )}
 
-      {/* 结果面板 */}
       {combinedResult && formattedResult && parsedExpr && (
         <ResultsPanel
           resultVariable={parsedExpr.resultVariable}
@@ -311,7 +295,6 @@ export function Calculator() {
         />
       )}
 
-      {/* 计算过程文档 */}
       {exportData && (
         <>
           <ProcessDocument data={exportData} />

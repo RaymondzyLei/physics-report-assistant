@@ -3,18 +3,19 @@ import katex from 'katex';
 import { type DerivativeResult } from '../lib/symbolic';
 import { formatNumber } from '../lib/rounding';
 
+interface TermInfo {
+  variable: string;
+  logPartialValue: number;
+  uc: number;
+  contribution: number;
+}
+
 interface Props {
   resultVariable: string;
   finalValue: number;
   totalUc: number;
   relativeUc: number;
-  terms: { 
-    variable: string; 
-    logPartialValue: number; 
-    uc: number; 
-    contribution: number;
-    relativeContribution: number;
-  }[];
+  terms: TermInfo[];
   formattedValue: string;
   formattedUncertainty: string;
   confidence: number;
@@ -36,37 +37,39 @@ export function ResultsPanel({
   const resultRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (contributionsRef.current) {
-      const latex = terms.map((term) => {
-        const deriv = derivatives.find(d => d.variable === term.variable);
-        const logDerivLatex = deriv?.logDerivativeLatex || '?';
-        return `\\left(\\frac{\\partial \\ln ${resultVariable}}{\\partial ${term.variable}}\\right)^2 u_c^2(${term.variable}) &= \\left(${logDerivLatex}\\right)^2 \\times (${formatNumber(term.uc)})^2 \\\\ &= (${formatNumber(term.logPartialValue)})^2 \\times (${formatNumber(term.uc)})^2 = ${formatNumber(term.contribution)}`;
-      }).join(' \\\\\\\\ ');
+    if (!contributionsRef.current || terms.length === 0) return;
+
+    const latexLines = terms.map((term) => {
+      const deriv = derivatives.find(d => d.variable === term.variable);
+      const logDerivLatex = deriv?.logDerivativeLatex || '?';
       
-      try {
-        katex.render(`\\begin{aligned}${latex}\\end{aligned}`, contributionsRef.current, {
-          displayMode: true,
-          throwOnError: false,
-        });
-      } catch (e) {
-        contributionsRef.current.textContent = terms.map(t => 
-          `(∂ln${resultVariable}/∂${t.variable})² × u²(${t.variable}) = ${formatNumber(t.contribution)}`
-        ).join('\n');
-      }
+      return `\\left(\\frac{\\partial \\ln ${resultVariable}}{\\partial ${term.variable}}\\right)^2 u_c^2(${term.variable}) &= \\left(${logDerivLatex}\\right)^2 \\times (${formatNumber(term.uc)})^2 \\\\ &= (${formatNumber(term.logPartialValue)})^2 \\times (${formatNumber(term.uc)})^2 \\\\ &= ${formatNumber(term.contribution)}`;
+    });
+    
+    try {
+      katex.render(
+        `\\begin{aligned}${latexLines.join(' \\\\\\\\ ')}\\end{aligned}`,
+        contributionsRef.current,
+        { displayMode: true, throwOnError: false }
+      );
+    } catch (e) {
+      contributionsRef.current.textContent = terms
+        .map(t => `(∂ln${resultVariable}/∂${t.variable})² × u²(${t.variable}) = ${formatNumber(t.contribution)}`)
+        .join('\n');
     }
   }, [terms, derivatives, resultVariable]);
 
   useEffect(() => {
-    if (resultRef.current) {
-      const latex = `${resultVariable} = ${formattedValue} \\pm ${formattedUncertainty} \\quad (P = ${confidence})`;
-      try {
-        katex.render(latex, resultRef.current, {
-          displayMode: true,
-          throwOnError: false,
-        });
-      } catch (e) {
-        resultRef.current.textContent = `${resultVariable} = ${formattedValue} ± ${formattedUncertainty} (P = ${confidence})`;
-      }
+    if (!resultRef.current) return;
+    
+    try {
+      katex.render(
+        `${resultVariable} = ${formattedValue} \\pm ${formattedUncertainty} \\quad (P = ${confidence})`,
+        resultRef.current,
+        { displayMode: true, throwOnError: false }
+      );
+    } catch (e) {
+      resultRef.current.textContent = `${resultVariable} = ${formattedValue} ± ${formattedUncertainty} (P = ${confidence})`;
     }
   }, [resultVariable, formattedValue, formattedUncertainty, confidence]);
 
@@ -85,7 +88,7 @@ export function ResultsPanel({
           <span class="value">{formatNumber(finalValue)}</span>
         </div>
         <div class="summary-row">
-          <span>相对不确定度 u<sub>c</sub>({resultVariable})/{resultVariable}：</span>
+          <span>相对不确定度：</span>
           <span class="value">{formatNumber(relativeUc * 100, 2)}%</span>
         </div>
         <div class="summary-row">
