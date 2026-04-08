@@ -1,43 +1,29 @@
-# Astro Starter Kit: Minimal
+# 物理实验不确定度计算器
 
-```sh
-pnpm create astro@latest -- --template minimal
-```
+大学物理实验不确定度（误差）计算辅助工具，帮助学生快速计算测量结果的不确定度。
 
-> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
+## 功能特性
 
-## 🚀 Project Structure
+- 📝 支持自定义物理量表达式输入
+- 🔢 自动识别变量和数学常量
+- 📐 自动推导偏导数和不确定度传递公式
+- 📊 实时计算均值、标准差、A类/B类/合成不确定度
+- 📉 Grubbs 检验自动识别可疑数据
+- 🎯 有效数字自动修约
+- 📋 支持导出为 LaTeX/Markdown 格式
+- 💾 自动保存数据到本地存储
+- 📱 完整的移动端适配
 
-Inside of your Astro project, you'll see the following folders and files:
+## 技术栈
 
-```text
-/
-├── public/
-├── src/
-│   └── pages/
-│       └── index.astro
-└── package.json
-```
+- **Astro** - 静态站点生成框架
+- **Preact** - 轻量级 React 替代方案
+- **math.js** - 符号计算和表达式解析
+- **KaTeX** - LaTeX 公式渲染
 
-Astro looks for `.astro` or `.md` files in the `src/pages/` directory. Each page is exposed as a route based on its file name.
+## 本地开发
 
-There's nothing special about `src/components/`, but that's where we like to put any Astro/React/Vue/Svelte/Preact components.
+### 安装依赖
 
-Any static assets, like images, can be placed in the `public/` directory.
-
-## 🧞 Commands
-
-All commands are run from the root of the project, from a terminal:
-
-| Command                   | Action                                           |
-| :------------------------ | :----------------------------------------------- |
-| `pnpm install`             | Installs dependencies                            |
-| `pnpm dev`             | Starts local dev server at `localhost:4321`      |
-| `pnpm build`           | Build your production site to `./dist/`          |
-| `pnpm preview`         | Preview your build locally, before deploying     |
-| `pnpm astro ...`       | Run CLI commands like `astro add`, `astro check` |
-| `pnpm astro -- --help` | Get help using the Astro CLI                     |
-
-## 👀 Want to learn more?
-
-Feel free to check [our documentation](https://docs.astro.build) or jump into our [Discord server](https://astro.build/chat).
+```bash
+npm install
