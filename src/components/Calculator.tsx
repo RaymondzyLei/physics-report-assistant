@@ -19,10 +19,51 @@ import { getTValue, type ConfidenceLevel } from '../lib/tTable';
 import { formatResult } from '../lib/rounding';
 import { generateLatex, generateMarkdown, type ExportData } from '../lib/latex';
 
-const EXAMPLE_EXPRESSIONS = [
-  { label: '密度测量', expr: 'rho = 4 * m / (pi * d^2 * L)' },
-  { label: '单摆周期', expr: 'g = 4 * pi^2 * L / T^2' },
-  { label: '欧姆定律', expr: 'R = U / I' },
+interface ExampleItem {
+  label: string;
+  expr: string;
+  data: Record<string, { values: number[]; instrumentUncertainty: number }>;
+}
+
+const EXAMPLE_EXPRESSIONS: ExampleItem[] = [
+  {
+    label: '密度测量',
+    expr: 'rho = 4 * m / (pi * d^2 * L)',
+    data: {
+      m:  { values: [50.2, 50.3, 50.1], instrumentUncertainty: 0.05 },
+      d:  { values: [2.01, 2.02, 2.00], instrumentUncertainty: 0.01 },
+      L:  { values: [10.0, 10.1, 9.9],  instrumentUncertainty: 0.1 }
+    }
+  },
+  {
+    label: '单摆周期',
+    expr: 'g = 4 * pi^2 * L / T^2',
+    data: {
+      L: { values: [1.00, 1.01, 0.99], instrumentUncertainty: 0.005 },
+      T: { values: [2.01, 2.00, 2.02], instrumentUncertainty: 0.01 }
+    }
+  },
+  {
+    label: '欧姆定律',
+    expr: 'R = U / I',
+    data: {
+      U: { values: [5.00, 5.02, 4.98], instrumentUncertainty: 0.01 },
+      I: { values: [0.50, 0.51, 0.49], instrumentUncertainty: 0.005 }
+    }
+  },
+  {
+    label: '切变模量',
+    expr: 'G = 4 * pi * L * m * (r_1^2 + r_2^2) / (R^4 * (T_1^2 - T_0^2))',
+    data: {
+      L: { values: [0.50, 0.51, 0.49], instrumentUncertainty: 0.005 },
+      m: { values: [200.0, 201.0, 199.0], instrumentUncertainty: 0.5 },
+      r_1: { values: [0.02, 0.021, 0.019], instrumentUncertainty: 0.001 },
+      r_2: { values: [0.01, 0.011, 0.009], instrumentUncertainty: 0.001 },
+      R: { values: [0.005, 0.0051, 0.0049], instrumentUncertainty: 0.0005 },
+      T_1: { values: [1.00, 1.01, 0.99], instrumentUncertainty: 0.01 },
+      T_0: { values: [0.50, 0.51, 0.49], instrumentUncertainty: 0.005 }
+    }
+  },
 ];
 
 const STORAGE_KEY = 'physics-uncertainty-calculator';
@@ -212,10 +253,15 @@ export function Calculator() {
   }, []);
 
   // 加载示例
-  const loadExample = useCallback((expr: string) => {
+  const loadExample = useCallback((expr: string, exampleVars: { [key: string]: { values: number[]; instrumentUncertainty: number } }) => {
     setExpression(expr);
-    setVariableData({});
-  }, []);
+    const newVarData: { [key: string]: MeasurementData } = {};
+    Object.entries(exampleVars).forEach(([name, { values, instrumentUncertainty }]) => {
+      const defaultData = getDefaultMeasurementData(values.length, confidence);
+      newVarData[name] = { ...defaultData, values, instrumentError: instrumentUncertainty };
+    });
+    setVariableData(newVarData);
+  }, [confidence]);
 
   return (
     <div class="calculator">
@@ -238,7 +284,7 @@ export function Calculator() {
       <div class="examples">
         <span>示例：</span>
         {EXAMPLE_EXPRESSIONS.map(ex => (
-          <button key={ex.label} class="example-btn" onClick={() => loadExample(ex.expr)}>
+          <button key={ex.label} class="example-btn" onClick={() => loadExample(ex.expr, ex.data)}>
             {ex.label}
           </button>
         ))}
