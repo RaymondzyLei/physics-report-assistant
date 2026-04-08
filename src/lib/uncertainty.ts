@@ -1,13 +1,13 @@
 import { type MathNode } from 'mathjs';
 import { getTValue, type ConfidenceLevel } from './tTable';
 import { grubbsTest, type GrubbsResult } from './grubbs';
-import { evaluateDerivative, type DerivativeResult } from './symbolic';
+import { evaluateLogDerivative, type DerivativeResult } from './symbolic';
 
 export interface MeasurementData {
   values: number[];
-  instrumentError: number; // Δ_ins
-  distributionFactor: number; // k
-  tFactor: number; // t_p
+  instrumentError: number | null; // Δ_ins，允许为 null 表示未输入
+  distributionFactor: number | null; // k，允许为 null 表示未输入
+  tFactor: number | null; // t_p，允许为 null 表示未输入
 }
 
 export interface VariableStats {
@@ -17,6 +17,7 @@ export interface VariableStats {
   uA: number; // A类不确定度
   uB: number; // B类不确定度
   uc: number; // 合成不确定度
+  relativeUc: number; // 相对不确定度 uc/mean
   grubbsResult: GrubbsResult | null;
 }
 
@@ -24,6 +25,29 @@ export interface VariableResult {
   name: string;
   data: MeasurementData;
   stats: VariableStats;
+}
+
+// 默认值常量
+export const DEFAULT_DISTRIBUTION_FACTOR = Math.sqrt(3);
+
+/**
+ * 获取有效的分布因子（如果未输入则使用默认值）
+ */
+export function getEffectiveDistributionFactor(value: number | null): number {
+  if (value === null || isNaN(value)) {
+    return DEFAULT_DISTRIBUTION_FACTOR;
+  }
+  return value;
+}
+
+/**
+ * 获取有效的仪器误差（如果未输入则返回0）
+ */
+export function getEffectiveInstrumentError(value: number | null): number {
+  if (value === null || isNaN(value)) {
+    return 0;
+  }
+  return value;
 }
 
 /**
@@ -41,6 +65,7 @@ export function calculateVariableStats(data: MeasurementData): VariableStats {
       uA: NaN,
       uB: NaN,
       uc: NaN,
+      relativeUc: NaN,
       grubbsResult: null,
     };
   }
@@ -58,17 +83,25 @@ export function calculateVariableStats(data: MeasurementData): VariableStats {
     sampleStd = Math.sqrt(sumSquaredResiduals / (n - 1));
   }
   
+  // 获取有效的参数值
+  const effectiveTFactor = data.tFactor ?? getTValue(n, 0.95);
+  const effectiveDistributionFactor = getEffectiveDistributionFactor(data.distributionFactor);
+  const effectiveInstrumentError = getEffectiveInstrumentError(data.instrumentError);
+  
   // A类不确定度
   let uA = 0;
   if (n > 1) {
-    uA = data.tFactor * sampleStd / Math.sqrt(n);
+    uA = effectiveTFactor * sampleStd / Math.sqrt(n);
   }
   
   // B类不确定度
-  const uB = data.instrumentError / data.distributionFactor;
+  const uB = effectiveInstrumentError / effectiveDistributionFactor;
   
   // 合成不确定度
   const uc = Math.sqrt(uA * uA + uB * uB);
+  
+  // 相对不确定度
+  const relativeUc = mean !== 0 ? uc / Math.abs(mean) : NaN;
   
   // Grubbs检验
   const grubbsResult = grubbsTest(values);
@@ -80,17 +113,29 @@ export function calculateVariableStats(data: MeasurementData): VariableStats {
     uA,
     uB,
     uc,
+    relativeUc,
     grubbsResult,
   };
 }
 
 /**
- * 计算总合成不确定度
+ * 使用对数微分法计算总合成不确定度
  */
 export function calculateCombinedUncertainty(
   derivatives: DerivativeResult[],
-  variableResults: VariableResult[]
-): { totalUc: number; terms: { variable: string; partialValue: number; uc: number; contribution: number }[] } {
+  variableResults: VariableResult[],
+  finalValue: number
+): { 
+  totalUc: number; 
+  relativeUc: number;
+  terms: { 
+    variable: string; 
+    logPartialValue: number; 
+    uc: number; 
+    contribution: number;
+    relativeContribution: number;
+  }[] 
+} {
   const meanValues: { [key: string]: number } = {};
   const uncertainties: { [key: string]: number } = {};
   
@@ -99,26 +144,45 @@ export function calculateCombinedUncertainty(
     uncertainties[vr.name] = vr.stats.uc;
   });
   
-  const terms: { variable: string; partialValue: number; uc: number; contribution: number }[] = [];
+  const terms: { 
+    variable: string; 
+    logPartialValue: number; 
+    uc: number; 
+    contribution: number;
+    relativeContribution: number;
+  }[] = [];
+  
   let sumSquared = 0;
   
   derivatives.forEach(d => {
-    const partialValue = evaluateDerivative(d.derivative, meanValues);
+    // 使用对数偏导数
+    const logPartialValue = evaluateLogDerivative(d.logDerivative, meanValues);
     const uc = uncertainties[d.variable] || 0;
-    const contribution = Math.pow(partialValue * uc, 2);
+    // 贡献项：(∂ln f/∂x)² * u²(x)
+    const contribution = Math.pow(logPartialValue * uc, 2);
+    // 相对贡献（用于显示）
+    const mean = meanValues[d.variable];
+    const relativeContribution = mean !== 0 ? Math.pow(logPartialValue * uc, 2) : 0;
     
     terms.push({
       variable: d.variable,
-      partialValue,
+      logPartialValue,
       uc,
       contribution,
+      relativeContribution,
     });
     
     sumSquared += contribution;
   });
   
+  // 相对不确定度
+  const relativeUc = Math.sqrt(sumSquared);
+  // 绝对不确定度
+  const totalUc = Math.abs(finalValue) * relativeUc;
+  
   return {
-    totalUc: Math.sqrt(sumSquared),
+    totalUc,
+    relativeUc,
     terms,
   };
 }
@@ -132,8 +196,8 @@ export function getDefaultMeasurementData(
 ): MeasurementData {
   return {
     values: Array(n).fill(NaN),
-    instrumentError: 0,
-    distributionFactor: Math.sqrt(3), // 均匀分布
+    instrumentError: null, // 初始为 null，表示未输入
+    distributionFactor: null, // 初始为 null，使用默认值 √3
     tFactor: getTValue(n, confidence),
   };
 }

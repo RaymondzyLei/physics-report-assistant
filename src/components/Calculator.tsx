@@ -158,7 +158,16 @@ export function Calculator() {
     const allValid = variableResults.every(vr => !isNaN(vr.stats.mean) && !isNaN(vr.stats.uc));
     if (!allValid) return null;
 
-    return calculateCombinedUncertainty(derivatives, variableResults);
+    // 先计算 finalValue
+    const meanValues: { [key: string]: number } = {};
+    variableResults.forEach(vr => {
+      meanValues[vr.name] = vr.stats.mean;
+    });
+    const fv = evaluateExpression(parsedExpr.expression, meanValues);
+    
+    if (isNaN(fv)) return null;
+
+    return calculateCombinedUncertainty(derivatives, variableResults, fv);
   }, [derivatives, variableResults, parsedExpr]);
 
   // 计算最终值
@@ -293,6 +302,7 @@ export function Calculator() {
           resultVariable={parsedExpr.resultVariable}
           finalValue={finalValue}
           totalUc={combinedResult.totalUc}
+          relativeUc={combinedResult.relativeUc}
           terms={combinedResult.terms}
           formattedValue={formattedResult.value}
           formattedUncertainty={formattedResult.uncertainty}

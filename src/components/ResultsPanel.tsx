@@ -1,13 +1,20 @@
 import { useEffect, useRef } from 'preact/hooks';
 import katex from 'katex';
-import type { DerivativeResult } from '../lib/symbolic';
+import { type DerivativeResult } from '../lib/symbolic';
 import { formatNumber } from '../lib/rounding';
 
 interface Props {
   resultVariable: string;
   finalValue: number;
   totalUc: number;
-  terms: { variable: string; partialValue: number; uc: number; contribution: number }[];
+  relativeUc: number;
+  terms: { 
+    variable: string; 
+    logPartialValue: number; 
+    uc: number; 
+    contribution: number;
+    relativeContribution: number;
+  }[];
   formattedValue: string;
   formattedUncertainty: string;
   confidence: number;
@@ -18,6 +25,7 @@ export function ResultsPanel({
   resultVariable,
   finalValue,
   totalUc,
+  relativeUc,
   terms,
   formattedValue,
   formattedUncertainty,
@@ -29,10 +37,11 @@ export function ResultsPanel({
 
   useEffect(() => {
     if (contributionsRef.current) {
-      const latex = terms.map((term, i) => {
+      const latex = terms.map((term) => {
         const deriv = derivatives.find(d => d.variable === term.variable);
-        return `\\left(\\frac{\\partial ${resultVariable}}{\\partial ${term.variable}}\\right)^2 u_c^2(${term.variable}) = (${formatNumber(term.partialValue)})^2 \\times (${formatNumber(term.uc)})^2 = ${formatNumber(term.contribution)}`;
-      }).join(' \\\\ ');
+        const logDerivLatex = deriv?.logDerivativeLatex || '?';
+        return `\\left(\\frac{\\partial \\ln ${resultVariable}}{\\partial ${term.variable}}\\right)^2 u_c^2(${term.variable}) &= \\left(${logDerivLatex}\\right)^2 \\times (${formatNumber(term.uc)})^2 \\\\ &= (${formatNumber(term.logPartialValue)})^2 \\times (${formatNumber(term.uc)})^2 = ${formatNumber(term.contribution)}`;
+      }).join(' \\\\\\\\ ');
       
       try {
         katex.render(`\\begin{aligned}${latex}\\end{aligned}`, contributionsRef.current, {
@@ -41,7 +50,7 @@ export function ResultsPanel({
         });
       } catch (e) {
         contributionsRef.current.textContent = terms.map(t => 
-          `(∂${resultVariable}/∂${t.variable})² × u²(${t.variable}) = ${formatNumber(t.contribution)}`
+          `(∂ln${resultVariable}/∂${t.variable})² × u²(${t.variable}) = ${formatNumber(t.contribution)}`
         ).join('\n');
       }
     }
@@ -66,7 +75,7 @@ export function ResultsPanel({
       <h2>计算结果</h2>
       
       <div class="contributions-section">
-        <h3>各项贡献</h3>
+        <h3>各项贡献（对数微分法）</h3>
         <div class="contributions" ref={contributionsRef}></div>
       </div>
 
@@ -76,12 +85,12 @@ export function ResultsPanel({
           <span class="value">{formatNumber(finalValue)}</span>
         </div>
         <div class="summary-row">
-          <span>总合成不确定度 u<sub>c</sub>({resultVariable})：</span>
-          <span class="value">{formatNumber(totalUc)}</span>
+          <span>相对不确定度 u<sub>c</sub>({resultVariable})/{resultVariable}：</span>
+          <span class="value">{formatNumber(relativeUc * 100, 2)}%</span>
         </div>
         <div class="summary-row">
-          <span>相对不确定度：</span>
-          <span class="value">{formatNumber(totalUc / Math.abs(finalValue) * 100, 2)}%</span>
+          <span>绝对不确定度 u<sub>c</sub>({resultVariable})：</span>
+          <span class="value">{formatNumber(totalUc)}</span>
         </div>
       </div>
 

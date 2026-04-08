@@ -5,37 +5,51 @@ const math = create(all);
 
 export interface DerivativeResult {
   variable: string;
+  // 原始偏导数 ∂f/∂x
   derivative: MathNode;
-  latex: string;
+  derivativeLatex: string;
+  // 对数偏导数 ∂(ln f)/∂x = (1/f) * (∂f/∂x)
+  logDerivative: MathNode;
+  logDerivativeLatex: string;
+  // 简化后的字符串
   simplified: string;
 }
 
-export interface UncertaintyFormula {
-  derivatives: DerivativeResult[];
-  combinedFormulaLatex: string;
-}
-
 /**
- * 对表达式关于指定变量求偏导数
+ * 对表达式关于指定变量求偏导数（包括对数偏导）
  */
 export function computeDerivative(expression: string, variable: string): DerivativeResult {
   try {
     const node = math.parse(expression);
+    
+    // 计算原始偏导数 ∂f/∂x
     const derivative = math.derivative(node, variable);
-    const simplified = math.simplify(derivative);
+    const simplifiedDerivative = math.simplify(derivative);
+    
+    // 计算对数偏导数 ∂(ln f)/∂x
+    // 方法：对 log(expression) 求导
+    const logExpr = `log(${expression})`;
+    const logNode = math.parse(logExpr);
+    const logDerivative = math.derivative(logNode, variable);
+    const simplifiedLogDerivative = math.simplify(logDerivative);
     
     return {
       variable,
-      derivative: simplified,
-      latex: nodeToLatex(simplified),
-      simplified: simplified.toString(),
+      derivative: simplifiedDerivative,
+      derivativeLatex: nodeToLatex(simplifiedDerivative),
+      logDerivative: simplifiedLogDerivative,
+      logDerivativeLatex: nodeToLatex(simplifiedLogDerivative),
+      simplified: simplifiedLogDerivative.toString(),
     };
   } catch (e) {
     console.error(`求导错误 (${variable}):`, e);
+    const zeroNode = math.parse('0');
     return {
       variable,
-      derivative: math.parse('0'),
-      latex: '\\text{Error}',
+      derivative: zeroNode,
+      derivativeLatex: '0',
+      logDerivative: zeroNode,
+      logDerivativeLatex: '0',
       simplified: '0',
     };
   }
@@ -49,43 +63,93 @@ export function computeAllDerivatives(expression: string, variables: string[]): 
 }
 
 /**
- * 生成不确定度传递公式的LaTeX
+ * 生成对数形式的公式（用于显示）
  */
-export function generateUncertaintyFormula(
+export function generateLogFormula(resultVar: string, expressionLatex: string): string {
+  return `\\ln ${resultVar} = \\ln\\left(${expressionLatex}\\right)`;
+}
+
+/**
+ * 生成相对不确定度传递公式的LaTeX
+ */
+export function generateRelativeUncertaintyFormula(
   resultVar: string,
   derivatives: DerivativeResult[]
 ): string {
   if (derivatives.length === 0) {
-    return `u_c(${resultVar}) = 0`;
+    return `\\frac{u_c(${resultVar})}{|${resultVar}|} = 0`;
   }
   
   const terms = derivatives.map(d => {
-    return `\\left(\\frac{\\partial f}{\\partial ${d.variable}}\\right)^2 u_c^2(${d.variable})`;
+    return `\\left(\\frac{\\partial \\ln f}{\\partial ${d.variable}}\\right)^2 u_c^2(${d.variable})`;
   });
   
-  return `u_c(${resultVar}) = \\sqrt{${terms.join(' + ')}}`;
+  return `\\frac{u_c(${resultVar})}{|${resultVar}|} = \\sqrt{${terms.join(' + ')}}`;
 }
 
 /**
- * 生成展开形式的不确定度公式
+ * 生成展开形式的相对不确定度公式（代入偏导数表达式）
  */
 export function generateExpandedFormula(
   resultVar: string,
   derivatives: DerivativeResult[]
 ): string {
   if (derivatives.length === 0) {
-    return `u_c(${resultVar}) = 0`;
+    return `\\frac{u_c(${resultVar})}{|${resultVar}|} = 0`;
   }
   
   const terms = derivatives.map(d => {
-    return `\\left(${d.latex}\\right)^2 u_c^2(${d.variable})`;
+    return `\\left(${d.logDerivativeLatex}\\right)^2 u_c^2(${d.variable})`;
   });
   
-  return `u_c(${resultVar}) = \\sqrt{${terms.join(' + ')}}`;
+  return `\\frac{u_c(${resultVar})}{|${resultVar}|} = \\sqrt{${terms.join(' + ')}}`;
 }
 
 /**
- * 计算偏导数在给定点的数值
+ * 生成简化形式的相对不确定度公式（使用相对不确定度）
+ */
+export function generateSimplifiedFormula(
+  resultVar: string,
+  derivatives: DerivativeResult[]
+): string {
+  if (derivatives.length === 0) {
+    return `\\frac{u_c(${resultVar})}{|${resultVar}|} = 0`;
+  }
+  
+  // 尝试生成更简洁的形式
+  const terms = derivatives.map(d => {
+    // 检查对数偏导数是否是 n/x 的形式（幂次/变量）
+    const simplified = d.simplified;
+    const match = simplified.match(/^(-?\d*\.?\d*)\s*[*/]\s*(\w+)$|^(-?\d*\.?\d*)\s*\/\s*(\w+)$/);
+    
+    if (match) {
+      // 如果是简单的 n/x 形式
+      return `\\left(${d.logDerivativeLatex} \\cdot u_c(${d.variable})\\right)^2`;
+    }
+    return `\\left(${d.logDerivativeLatex}\\right)^2 u_c^2(${d.variable})`;
+  });
+  
+  return `\\frac{u_c(${resultVar})}{|${resultVar}|} = \\sqrt{${terms.join(' + ')}}`;
+}
+
+/**
+ * 计算对数偏导数在给定点的数值
+ */
+export function evaluateLogDerivative(
+  logDerivative: MathNode,
+  values: { [key: string]: number }
+): number {
+  try {
+    const scope = { ...values, pi: Math.PI, e: Math.E, PI: Math.PI, E: Math.E };
+    const compiled = logDerivative.compile();
+    return compiled.evaluate(scope) as number;
+  } catch {
+    return NaN;
+  }
+}
+
+/**
+ * 计算原始偏导数在给定点的数值
  */
 export function evaluateDerivative(
   derivative: MathNode,

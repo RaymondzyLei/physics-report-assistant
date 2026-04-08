@@ -32,27 +32,34 @@ export function generateLatex(data: ExportData): string {
   lines.push('\\end{equation}');
   lines.push('');
   
-  // 偏导数
-  lines.push('\\subsection*{2. 偏导数推导}');
+  // 两边取对数
+  lines.push('\\subsection*{2. 两边取对数}');
+  lines.push('\\begin{equation}');
+  lines.push(`\\ln ${data.resultVariable} = \\ln\\left(${data.expressionLatex}\\right)`);
+  lines.push('\\end{equation}');
+  lines.push('');
+  
+  // 对数偏导数
+  lines.push('\\subsection*{3. 对数偏导数}');
   data.derivatives.forEach(d => {
     lines.push('\\begin{equation}');
-    lines.push(`\\frac{\\partial ${data.resultVariable}}{\\partial ${d.variable}} = ${d.latex}`);
+    lines.push(`\\frac{\\partial \\ln ${data.resultVariable}}{\\partial ${d.variable}} = ${d.logDerivativeLatex}`);
     lines.push('\\end{equation}');
   });
   lines.push('');
   
-  // 不确定度传递公式
-  lines.push('\\subsection*{3. 不确定度传递公式}');
+  // 相对不确定度传递公式
+  lines.push('\\subsection*{4. 相对不确定度传递公式}');
   lines.push('\\begin{equation}');
   const terms = data.derivatives.map(d => 
-    `\\left(\\frac{\\partial ${data.resultVariable}}{\\partial ${d.variable}}\\right)^2 u_c^2(${d.variable})`
+    `\\left(${d.logDerivativeLatex}\\right)^2 u_c^2(${d.variable})`
   );
-  lines.push(`u_c(${data.resultVariable}) = \\sqrt{${terms.join(' + ')}}`);
+  lines.push(`\\frac{u_c(${data.resultVariable})}{|${data.resultVariable}|} = \\sqrt{${terms.join(' + ')}}`);
   lines.push('\\end{equation}');
   lines.push('');
   
   // 各变量计算
-  lines.push('\\subsection*{4. 各变量不确定度计算}');
+  lines.push('\\subsection*{5. 各变量不确定度计算}');
   data.variableResults.forEach(vr => {
     const n = vr.data.values.filter(v => !isNaN(v)).length;
     const validValues = vr.data.values.filter(v => !isNaN(v));
@@ -93,7 +100,7 @@ export function generateLatex(data: ExportData): string {
   });
   
   // 最终结果
-  lines.push('\\subsection*{5. 最终结果}');
+  lines.push('\\subsection*{6. 最终结果}');
   lines.push('\\begin{equation}');
   lines.push(`${data.resultVariable} = ${data.formattedValue} \\pm ${data.formattedUncertainty} \\quad (P = ${data.confidence})`);
   lines.push('\\end{equation}');
