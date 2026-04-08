@@ -266,7 +266,7 @@ export function Calculator() {
   return (
     <div class="calculator">
       <header class="header">
-        <h1>物理实验不确定度计算器</h1>
+        <h1>物理实验数据分析辅助工具</h1>
         <p class="subtitle">大学物理实验误差分析辅助工具（对数微分法）</p>
       </header>
 
