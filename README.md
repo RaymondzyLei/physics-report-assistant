@@ -26,4 +26,11 @@
 ### 安装依赖
 
 ```bash
-npm install
+pnpm install
+```
+
+### 运行
+
+```bash
+pnpm run dev
+```
